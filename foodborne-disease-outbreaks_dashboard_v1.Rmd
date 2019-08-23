@@ -1,0 +1,538 @@
+---
+title: "Foodborne Disease Outbreaks in the U.S."
+output: 
+  flexdashboard::flex_dashboard:
+    theme: lumen
+    orientation: rows
+    vertical_layout: fill
+    source_code: "https://github.com/bdetanico"
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(StatMeasures)
+library(pander)
+library(tidytext)
+library(wordcloud)
+library(RColorBrewer)
+library(stringr)
+library(plotly)
+library(formattable)
+library(reshape2)
+# Dataset
+setwd("C:/Users/bdeta/Documents/R/Projects/3 - Foodborne_disease_outbreaks")
+df <- as.data.frame(read_csv("outbreaks.csv"))
+
+# Transformations
+df$Month <- as.factor(df$Month)
+df$State <- as.factor(df$State)
+```
+
+
+Sidebar {.sidebar}
+=====================================
+
+<div align="justify"><font size="2"><b>This dashboard is part of the Project Summary Report on Foodborne Disease Outbreaks, which can be acessed on: <a href="https://github.com/bdetanico">GitHub</a> or <a href="https://www.kaggle.com/bdetanico">Kaggle</a></b>.
+
+A foodborne disease outbreak (FBO) is defined as two or more cases of similar illnesses caused by the same agent (e.g., a toxin, virus or bacteria) which are linked to the same food source. The CDC estimates that each year roughly 1 in 6 Americans (or 48 million people) get sick, 128,000 are hospitalized and 3,000 die of foodborne diseases.
+
+The collection of data on foodborne outbreaks is imperative to identify the pathogen and the food vehicle involved, providing relevant information to monitor the prevalence of foodborne disease. In addition, such data contribute to evaluate trends and can provide the basis for regulatory changes and public health actions to improve food safety and reduce illness and death caused by foodborne diseases.</font></div>
+
+
+Geographical distribution {data-icon="fa-map-marker"}
+=====================================     
+
+### Geographical distribution of foodborne disease illnesses events
+```{r}
+df.maps <- df %>%
+  mutate(Code = state.abb[match(State, state.name)])
+
+df.maps.ill <- df.maps %>%
+  group_by(Code, State) %>%
+  summarise(illnesses = sum(Illnesses))
+
+g <- list(
+  scope = 'usa',
+  projection = list(type = 'albers usa')
+)
+
+plot_geo(df.maps.ill, locationmode = 'USA-states') %>%
+  add_trace(
+    z = ~illnesses, text= ~State, locations = ~Code,
+    color = ~illnesses, colors = 'Greens'
+  ) %>%
+  colorbar(title = "Illnesses") %>%
+  layout(
+    geo = g
+  )
+```
+
+Time Series {data-icon="fa-calendar"} 
+=====================================  
+
+Column {.tabset}
+-------------------------------------
+
+### Events by year (1998-2015)
+
+```{r}
+df %<>%
+  mutate(Hospitalizations = replace_na(Hospitalizations, 0)) %>%
+  mutate(Fatalities = replace_na(Fatalities, 0))
+
+df[is.na(df)] <- "NA"
+
+df.num <- df %>%
+  group_by(Year) %>%
+  mutate(Hospitalizations = replace_na(Hospitalizations, 0)) %>%
+  mutate(Fatalities = replace_na(Fatalities, 0)) %>%
+  summarise(outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+p1 <- ggplotly(ggplot(df.num, aes(x = Year, y = outbreaks)) +
+  geom_line(colour="#b8ddf2") +
+  geom_point(size=1, colour="#b8ddf2") +
+  scale_x_continuous(breaks = df.num$Year))
+
+p2 <- ggplotly(ggplot(df.num, aes(x = Year, y = illnesses)) +
+  geom_line(colour="#6ed46e") +
+  geom_point(size=1, colour="#6ed46e") +
+  scale_x_continuous(breaks = df.num$Year))
+
+p3 <- ggplotly(ggplot(df.num, aes(x = Year, y = hospitalizations)) +
+  geom_line(colour="#f7d383") +
+  geom_point(size=1, colour="#f7d383") +
+  scale_x_continuous(breaks = df.num$Year))
+
+p4 <- ggplotly(ggplot(df.num, aes(x = Year, y = fatalities)) +
+  geom_line(colour="#eb724d") +
+  geom_point(size=1, colour="#eb724d") +
+  scale_x_continuous(breaks = df.num$Year) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)))
+
+subplot(p1, p2, p3, p4, nrows = 4, shareX = TRUE, margin = 0.02) %>% layout(annotations = list(
+    list(
+      x = .040, 
+      y = 0.995, 
+      font = list(size = 11), 
+      text = "Outbreaks", 
+      xref = "paper", 
+      yref = "paper", 
+      xanchor = "center", 
+      yanchor = "bottom", 
+      showarrow = FALSE
+    ), 
+    list(
+      x = .036, 
+      y = 0.725, 
+      font = list(size = 11), 
+      text = "Illnesses", 
+      xref = "paper", 
+      yref = "paper", 
+      xanchor = "center", 
+      yanchor = "bottom", 
+      showarrow = FALSE
+    ), 
+    list(
+      x = .055, 
+      y = 0.475, 
+      font = list(size = 11), 
+      text = "Hospitalizations", 
+      xref = "paper", 
+      yref = "paper", 
+      xanchor = "center", 
+      yanchor = "bottom", 
+      showarrow = FALSE
+    ), 
+    list(
+      x = .038, 
+      y = 0.224, 
+      font = list(size = 11), 
+      text = "Fatalities", 
+      xref = "paper", 
+      yref = "paper", 
+      xanchor = "center", 
+      yanchor = "bottom", 
+      showarrow = FALSE
+    )
+  ))
+```
+
+### Events by month
+
+```{r}
+df.num2 <- df %>%
+  mutate(Month = factor(Month, levels = c("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"))) %>%
+  group_by(Month) %>%
+  mutate(Hospitalizations = replace_na(Hospitalizations, 0)) %>%
+  mutate(Fatalities = replace_na(Fatalities, 0)) %>%
+  summarise(outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+p1 <- ggplotly(ggplot(df.num2, aes(x = as.factor(Month), y = outbreaks, group=1)) +
+  geom_line(colour="#b8ddf2") +
+  geom_point(size=1, colour="#b8ddf2"))
+
+p2 <- ggplotly(ggplot(df.num2, aes(x = Month, y = illnesses, group=1)) +
+  geom_line(colour="#6ed46e") +
+  geom_point(size=1, colour="#6ed46e") +
+  scale_y_continuous(limits = c(23700, 38000)))
+
+p3 <- ggplotly(ggplot(df.num2, aes(x = Month, y = hospitalizations, group=2)) +
+  geom_line(colour="#f7d383") +
+  geom_point(size=1, colour="#f7d383") +
+  scale_y_continuous(limits = c(690, 2300)))
+
+p4 <- ggplotly(ggplot(df.num2, aes(x = Month, y = fatalities, group=2)) +
+  geom_line(colour="#eb724d") +
+  geom_point(size=1, colour="#eb724d") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)))
+
+subplot(p1, p2, p3, p4, nrows = 4, shareX = TRUE, margin = 0.02) %>% layout(annotations = list(
+    list(
+      x = .045, 
+      y = 0.995, 
+      font = list(size = 11), 
+      text = "Outbreaks", 
+      xref = "paper", 
+      yref = "paper", 
+      xanchor = "center", 
+      yanchor = "bottom", 
+      showarrow = FALSE
+    ), 
+    list(
+      x = .036, 
+      y = 0.73, 
+      font = list(size = 11), 
+      text = "Illnesses", 
+      xref = "paper", 
+      yref = "paper", 
+      xanchor = "center", 
+      yanchor = "bottom", 
+      showarrow = FALSE
+    ), 
+    list(
+      x = .055, 
+      y = 0.475, 
+      font = list(size = 11), 
+      text = "Hospitalizations", 
+      xref = "paper", 
+      yref = "paper", 
+      xanchor = "center", 
+      yanchor = "bottom", 
+      showarrow = FALSE
+    ), 
+    list(
+      x = .038, 
+      y = 0.223, 
+      font = list(size = 11), 
+      text = "Fatalities", 
+      xref = "paper", 
+      yref = "paper", 
+      xanchor = "center", 
+      yanchor = "bottom", 
+      showarrow = FALSE
+    )
+  ))
+```
+
+
+Foods {data-icon="fa-apple"}
+=====================================     
+
+### Most frequent foods implicated in FBO
+
+```{r}
+df.food.1 <- df %>%
+  filter(str_detect(Food, "Chicken")) %>%
+  summarise(Food = "Chicken", outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+df.food.2 <- df %>%
+  filter(str_detect(Food, "Salad")) %>%
+  summarise(Food = "Salad", outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+df.food.3 <- df %>%
+  filter(str_detect(Food, "Beef")) %>%
+  summarise(Food = "Beef", outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+df.food.4 <- df %>%
+  filter(str_detect(Food, "Fish")) %>%
+  summarise(Food = "Fish", outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+df.food.5 <- df %>%
+  filter(str_detect(Food, "Rice")) %>%
+  summarise(Food = "Rice", outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+df.food.6 <- df %>%
+  filter(str_detect(Food, "Pork")) %>%
+  summarise(Food = "Pork", outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+df.food.7 <- df %>%
+  filter(str_detect(Food, "Turkey")) %>%
+  summarise(Food = "Turkey", outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+df.food.11 <- df %>%
+  filter(str_detect(Food, "Milk")) %>%
+  summarise(Food = "Milk", outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+df.food.10 <- df %>%
+  filter(str_detect(Food, "Oyster")) %>%
+  summarise(Food = "Oyster", outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+df.food.8 <- df %>%
+  filter(str_detect(Food, "Meat")) %>%
+  summarise(Food = "Meat", outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+df.food.9 <- df %>%
+  filter(str_detect(Food, "Cheese")) %>%
+  summarise(Food = "Cheese", outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+df.food.12 <- df %>%
+  filter(str_detect(Food, "Fruit")) %>%
+  summarise(Food = "Fruit", outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+df.food.13 <- df %>%
+  filter(str_detect(Food, "Egg")) %>%
+  summarise(Food = "Egg", outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+df.food.14 <- df %>%
+  filter(str_detect(Food, "Potato")) %>%
+  summarise(Food = "Potato", outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+df.food.full <- rbind(df.food.1, df.food.2, df.food.3, df.food.4, df.food.5, df.food.6, df.food.7, df.food.8, df.food.9, df.food.10, df.food.11, df.food.12, df.food.13, df.food.14)
+
+formattable(df.food.full, list(
+  outbreaks = color_bar("#b8ddf2"),
+ illnesses = color_bar("#6ed46e"),
+ hospitalizations = color_bar("#f7d383"),
+ fatalities = color_bar("#eb724d")))
+```
+
+> Chicken appeared in 1,309 outbreak events and was related to 23,464 illnesses, 1,058 hospitalizations and 11 fatalities events, while Salad appeared in 1,331 outbreak events and was related to 36,968 illnesses, 763 hospitalizations and 18 fatalities events. Regarding to fatalities, the most frequent food involved was Meat (23 events), followed by Turkey (21 events).
+
+
+Causative Agents {data-icon="fa-bug"} 
+=====================================  
+
+Column {.tabset}
+-------------------------------------
+
+### Foodborne disease events by causative agent
+```{r}
+df.species.1 <- df %>%
+  filter(str_detect(Species, "Norovirus genogroup I")) %>%
+  summarise(Species = "Norovirus genogroup I", outbreaks = n(), illnesses = sum(Illnesses), illnesses_per = round((sum(Illnesses)/sum(df$Illnesses))*100, digits=1), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities), fatalities_per = round((sum(Fatalities)/sum(df$Fatalities))*100, digits=1), case_fatality_rate = round( (sum(Fatalities)/sum(Illnesses))*100, digits=2))
+
+df.species.2 <- df %>%
+  filter(str_detect(Species, "Salmonella enterica")) %>%
+  summarise(Species = "Salmonella enterica", outbreaks = n(), illnesses = sum(Illnesses), illnesses_per = round((sum(Illnesses)/sum(df$Illnesses))*100, digits=1), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities), fatalities_per = round((sum(Fatalities)/sum(df$Fatalities))*100, digits=1), case_fatality_rate = round( (sum(Fatalities)/sum(Illnesses))*100, digits=2))
+
+df.species.3 <- df %>%
+  filter(str_detect(Species, "Norovirus genogroup II")) %>%
+  summarise(Species = "Norovirus genogroup II", outbreaks = n(), illnesses = sum(Illnesses), illnesses_per = round((sum(Illnesses)/sum(df$Illnesses))*100, digits=1), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities), fatalities_per = round((sum(Fatalities)/sum(df$Fatalities))*100, digits=1), case_fatality_rate = round( (sum(Fatalities)/sum(Illnesses))*100, digits=2))
+
+df.species.4 <- df %>%
+  filter(str_detect(Species, "Clostridium perfringens")) %>%
+  summarise(Species = "Clostridium perfringens", outbreaks = n(), illnesses = sum(Illnesses), illnesses_per = round((sum(Illnesses)/sum(df$Illnesses))*100, digits=1), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities), fatalities_per = round((sum(Fatalities)/sum(df$Fatalities))*100, digits=1), case_fatality_rate = round( (sum(Fatalities)/sum(Illnesses))*100, digits=2))
+
+df.species.5 <- df %>%
+  filter(str_detect(Species, "Norovirus unknown") | Species=="Norovirus") %>%
+  summarise(Species = "Norovirus", outbreaks = n(), illnesses = sum(Illnesses), illnesses_per = round((sum(Illnesses)/sum(df$Illnesses))*100, digits=1), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities), fatalities_per = round((sum(Fatalities)/sum(df$Fatalities))*100, digits=1), case_fatality_rate = round( (sum(Fatalities)/sum(Illnesses))*100, digits=2))
+
+df.species.6 <- df %>%
+  filter(str_detect(Species, "Staphylococcus aureus")) %>%
+  summarise(Species = "Staphylococcus aureus", outbreaks = n(), illnesses = sum(Illnesses), illnesses_per = round((sum(Illnesses)/sum(df$Illnesses))*100, digits=1), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities), fatalities_per = round((sum(Fatalities)/sum(df$Fatalities))*100, digits=1), case_fatality_rate = round( (sum(Fatalities)/sum(Illnesses))*100, digits=2))
+
+df.species.7 <- df %>%
+  filter(str_detect(Species, "Bacillus cereus")) %>%
+  summarise(Species = "Bacillus cereus", outbreaks = n(), illnesses = sum(Illnesses), illnesses_per = round((sum(Illnesses)/sum(df$Illnesses))*100, digits=1), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities), fatalities_per = round((sum(Fatalities)/sum(df$Fatalities))*100, digits=1), case_fatality_rate = round( (sum(Fatalities)/sum(Illnesses))*100, digits=2))
+
+df.species.8 <- df %>%
+  filter(str_detect(Species, "Escherichia coli, Shiga toxin-producing")) %>%
+  summarise(Species = "Escherichia coli, Shiga toxin-producing", outbreaks = n(), illnesses = sum(Illnesses), illnesses_per = round((sum(Illnesses)/sum(df$Illnesses))*100, digits=1), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities), fatalities_per = round((sum(Fatalities)/sum(df$Fatalities))*100, digits=1), case_fatality_rate = round( (sum(Fatalities)/sum(Illnesses))*100, digits=2))
+
+df.species.9 <- df %>%
+  filter(str_detect(Species, "Scombroid toxin")) %>%
+  summarise(Species = "Scombroid toxin", outbreaks = n(), illnesses = sum(Illnesses), illnesses_per = round((sum(Illnesses)/sum(df$Illnesses))*100, digits=1), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities), fatalities_per = round((sum(Fatalities)/sum(df$Fatalities))*100, digits=1), case_fatality_rate = round( (sum(Fatalities)/sum(Illnesses))*100, digits=2))
+
+df.species.10 <- df %>%
+  filter(str_detect(Species, "Campylobacter jejuni")) %>%
+  summarise(Species = "Campylobacter jejuni", outbreaks = n(), illnesses = sum(Illnesses), illnesses_per = round((sum(Illnesses)/sum(df$Illnesses))*100, digits=1), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities), fatalities_per = round((sum(Fatalities)/sum(df$Fatalities))*100, digits=1), case_fatality_rate = round( (sum(Fatalities)/sum(Illnesses))*100, digits=2))
+
+df.species.11 <- df %>%
+  filter(str_detect(Species, "Ciguatoxin")) %>%
+  summarise(Species = "Ciguatoxin", outbreaks = n(), illnesses = sum(Illnesses), illnesses_per = round((sum(Illnesses)/sum(df$Illnesses))*100, digits=1), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities), fatalities_per = round((sum(Fatalities)/sum(df$Fatalities))*100, digits=1), case_fatality_rate = round( (sum(Fatalities)/sum(Illnesses))*100, digits=2))
+
+df.species.12 <- df %>%
+  filter(str_detect(Species, "Shigella sonnei")) %>%
+  summarise(Species = "Shigella sonnei", outbreaks = n(), illnesses = sum(Illnesses), illnesses_per = round((sum(Illnesses)/sum(df$Illnesses))*100, digits=1), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities), fatalities_per = round((sum(Fatalities)/sum(df$Fatalities))*100, digits=1), case_fatality_rate = round( (sum(Fatalities)/sum(Illnesses))*100, digits=2))
+
+df.species.13 <- df %>%
+  filter(str_detect(Species, "Vibrio parahaemolyticus")) %>%
+  summarise(Species = "Vibrio parahaemolyticus", outbreaks = n(), illnesses = sum(Illnesses), illnesses_per = round((sum(Illnesses)/sum(df$Illnesses))*100, digits=1), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities), fatalities_per = round((sum(Fatalities)/sum(df$Fatalities))*100, digits=1), case_fatality_rate = round( (sum(Fatalities)/sum(Illnesses))*100, digits=2))
+
+df.species.14 <- df %>%
+  filter(str_detect(Species, "Hepatitis A")) %>%
+  summarise(Species = "Hepatitis A", outbreaks = n(), illnesses = sum(Illnesses), illnesses_per = round((sum(Illnesses)/sum(df$Illnesses))*100, digits=1), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities), fatalities_per = round((sum(Fatalities)/sum(df$Fatalities))*100, digits=1), case_fatality_rate = round( (sum(Fatalities)/sum(Illnesses))*100, digits=2))
+
+df.species.15 <- df %>%
+  filter(str_detect(Species, "Listeria monocytogenes")) %>%
+  summarise(Species = "Listeria monocytogenes", outbreaks = n(), illnesses = sum(Illnesses), illnesses_per = round((sum(Illnesses)/sum(df$Illnesses))*100, digits=1), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities), fatalities_per = round((sum(Fatalities)/sum(df$Fatalities))*100, digits=1), case_fatality_rate = round( (sum(Fatalities)/sum(Illnesses))*100, digits=2))
+
+df.species.16 <- df %>%
+  filter(str_detect(Species, "Clostridium botulinum")) %>%
+  summarise(Species = "Clostridium botulinum", outbreaks = n(), illnesses = sum(Illnesses), illnesses_per = round((sum(Illnesses)/sum(df$Illnesses))*100, digits=1), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities), fatalities_per = round((sum(Fatalities)/sum(df$Fatalities))*100, digits=1), case_fatality_rate = round( (sum(Fatalities)/sum(Illnesses))*100, digits=2))
+
+df.species.17 <- df %>%
+  filter(str_detect(Species, "Histamine")) %>%
+  summarise(Species = "Histamine", outbreaks = n(), illnesses = sum(Illnesses), illnesses_per = round((sum(Illnesses)/sum(df$Illnesses))*100, digits=1), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities), fatalities_per = round((sum(Fatalities)/sum(df$Fatalities))*100, digits=1), case_fatality_rate = round( (sum(Fatalities)/sum(Illnesses))*100, digits=2))
+
+df.species.18 <- df %>%
+  filter(str_detect(Species, "Cyclospora cayatenensis")) %>%
+  summarise(Species = "Cyclospora cayatenensis", outbreaks = n(), illnesses = sum(Illnesses), illnesses_per = round((sum(Illnesses)/sum(df$Illnesses))*100, digits=1), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities), fatalities_per = round((sum(Fatalities)/sum(df$Fatalities))*100, digits=1), case_fatality_rate = round( (sum(Fatalities)/sum(Illnesses))*100, digits=2))
+
+df.species.19 <- df %>%
+  filter(str_detect(Species, "Mycotoxins")) %>%
+  summarise(Species = "Mycotoxins", outbreaks = n(), illnesses = sum(Illnesses), illnesses_per = round((sum(Illnesses)/sum(df$Illnesses))*100, digits=1), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities), fatalities_per = round((sum(Fatalities)/sum(df$Fatalities))*100, digits=1), case_fatality_rate = round( (sum(Fatalities)/sum(Illnesses))*100, digits=2))
+
+df.species.20 <- df %>%
+  filter(str_detect(Species, "Escherichia coli, Enteropathogenic")) %>%
+  summarise(Species = "Escherichia coli, Enteropathogenic", outbreaks = n(), illnesses = sum(Illnesses), illnesses_per = round((sum(Illnesses)/sum(df$Illnesses))*100, digits=1), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities), fatalities_per = round((sum(Fatalities)/sum(df$Fatalities))*100, digits=1), case_fatality_rate = round( (sum(Fatalities)/sum(Illnesses))*100, digits=2))
+
+
+df.species.full <- rbind(df.species.1, df.species.2, df.species.3, df.species.4, df.species.5, df.species.6, df.species.7, df.species.8, df.species.9, df.species.10, df.species.11, df.species.12, df.species.13, df.species.14, df.species.15, df.species.16, df.species.17, df.species.18, df.species.19, df.species.20)
+
+formattable(df.species.full, list(
+ outbreaks = color_bar("#b8ddf2"),
+ illnesses = color_bar("#6ed46e"),
+ illnesses_per = color_bar("#96d696"),
+ hospitalizations = color_bar("#f7d383"),
+ fatalities = color_bar("#eb724d"),
+ fatalities_per = color_bar("#eb9f88"),
+ case_fatality_rate = color_bar("#bdbdbd")))
+```
+
+### Contribution of each agent to illnesses events
+
+```{r}
+df.species.temp2 <- df.species.full %>%
+  filter(illnesses_per >= 6)
+
+df.others2 <- data.frame("Species" = "Others", "outbreaks" = 0, "illnesses" = 0, "illnesses_per" = (100-sum(df.species.temp2$illnesses_per)), "hospitalizations" = 0, "fatalities" = 0, "fatalities_per" = (100-sum(df.species.temp2$fatalities_per)), "case_fatality_rate" = 0)
+
+df.species.fatal2 <- rbind(df.species.temp2, df.others2)
+
+colors2 = colorRampPalette(brewer.pal(5, "Greens"))(40)[df.species.fatal2$illnesses_per]
+
+plot_ly(df.species.fatal2, labels = ~Species, values = ~illnesses_per, marker = list(colors = colors2, line = list(color = 'White', width = 0.7))) %>%
+  add_pie(hole = 0.6) %>%
+  layout(autosize = F, width = 600, height = 600, showlegend = T, font = list(
+    size = 11),
+         xaxis = list(showgrid = F, zeroline = F, showticklabels = F),
+         yaxis = list(showgrid = F, zeroline = F, showticklabels = F))
+```
+
+### Contribution of each agent to fatalities events
+
+```{r}
+df.species.temp <- df.species.full %>%
+  filter(fatalities_per >= 2)
+
+df.others <- data.frame("Species" = "Others", "outbreaks" = 0, "illnesses" = 0, "illnesses_per" = (100-sum(df.species.temp$illnesses_per)), "hospitalizations" = 0, "fatalities" = 0, "fatalities_per" = (100-sum(df.species.temp$fatalities_per)), "case_fatality_rate" = 0)
+
+df.species.fatal <- rbind(df.species.temp, df.others)
+
+colors = colorRampPalette(brewer.pal(5, "OrRd"))(40)[df.species.fatal$fatalities_per]
+
+plot_ly(df.species.fatal, labels = ~Species, values = ~fatalities_per, marker = list(colors = colors, line = list(color = 'White', width = 0.7))) %>%
+  add_pie(hole = 0.6) %>%
+  layout(autosize = F, width = 680, height = 680,  showlegend = T, font = list(
+    size = 11),
+         xaxis = list(showgrid = F, zeroline = F, showticklabels = F),
+         yaxis = list(showgrid = F, zeroline = F, showticklabels = F))
+```
+
+
+Locations {data-icon="fa-cutlery"}
+=====================================     
+
+Row
+-----------------------------------------------------------------------
+
+### Foodborne disease events by location
+
+```{r}
+df.location.1 <- df %>%
+  filter(str_detect(Location, "Restaurant")) %>%
+  summarise(Location = "Restaurant", outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+df.location.2 <- df %>%
+  filter(str_detect(Location, "Private Home/Residence")) %>%
+  summarise(Location = "Private Home/Residence", outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+df.location.3 <- df %>%
+  filter(str_detect(Location, "Catering Service")) %>%
+  summarise(Location = "Catering Service", outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+df.location.4 <- df %>%
+  filter(str_detect(Location, "Grocery Store")) %>%
+  summarise(Location = "Grocery Store", outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+df.location.5 <- df %>%
+  filter(str_detect(Location, "Banquet Facility")) %>%
+  summarise(Location = "Banquet Facility", outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+df.location.6 <- df %>%
+  filter(str_detect(Location, "Fast Food Restaurant")) %>%
+  summarise(Location = "Fast Food Restaurant", outbreaks = n(), illnesses = sum(Illnesses), hospitalizations = sum(Hospitalizations), fatalities = sum(Fatalities))
+
+df.location.full <- rbind(df.location.1, df.location.2, df.location.3, df.location.4, df.location.5, df.location.6)
+
+formattable(df.location.full, list(
+ outbreaks = color_bar("#b8ddf2"),
+ illnesses = color_bar("#6ed46e"),
+ hospitalizations = color_bar("#f7d383"),
+ fatalities = color_bar("#eb724d")))
+```
+> Restaurant, for example, was the most frequent place of exposure in the outbreaks reported. It was present in 11,536 outbreaks and was related to 159,240 illnesses, 6,121 hospitalizations and 78 fatalities events. This local seems to pose the greatest risk of foodborne events, although private home/residence was related with more fatalities events (92).
+
+
+Row {.tabset}
+-----------------------------------------------------------------------
+
+### Causative agents in restaurant
+```{r}
+df.spec.local <- df %>%
+    unnest_tokens(species, Species, token = 'regex', pattern=";", collapse = FALSE) %>%
+    unnest_tokens(location, Location, token = 'regex', pattern=";", collapse = FALSE)
+
+df.spec.local$species <- trimws(df.spec.local$species, which = c("left"))  
+df.spec.local$location <- trimws(df.spec.local$location, which = c("left"))
+
+df.spec.local.1 <- df.spec.local %>%
+  filter(location == "restaurant" | location == "private home/residence") %>%
+  filter(species != "na") %>%
+  group_by(location, species) %>%
+  summarise(occurence = n())
+
+df.spec.local.1.top <- df.spec.local.1 %>%
+  filter(location == "restaurant" & occurence > 450)
+         
+df.spec.local.1.top <- df.spec.local.1.top[order(-df.spec.local.1.top$occurence),]
+
+formattable(df.spec.local.1.top, list(occurence = color_bar("#b8ddf2")))
+```
+> In restaurants, the most frequent causative agent was Norovirus genogroup I, followed by Salmonella enterica. 
+
+
+### Causative agents in private home/residence
+```{r}
+df.spec.local.2.top <- df.spec.local.1 %>%        
+   filter(location == "private home/residence" & occurence > 100)
+
+df.spec.local.2.top <- df.spec.local.2.top[order(-df.spec.local.2.top$occurence),]
+
+formattable(df.spec.local.2.top, list(occurence = color_bar("#b8ddf2")))
+```
+> The same agents (Salmonella enterica, Norovirus genogroup I), but in opposite position, was the most frequent in the outbreaks that took place in Private home/Residence.
